@@ -1,6 +1,6 @@
 ## AWS Transit Gateway Overlapping Cidrs
 
-Scripts to establish network connectivity between Overlapping CIDRs using AWS Transit Gateway
+Scripts to Establish network connectivity between Overlapping CIDRs using AWS Transit Gateway
 
 ## License Summary
 
