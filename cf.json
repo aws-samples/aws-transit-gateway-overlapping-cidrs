@@ -1,0 +1,1227 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "Overlapping NAT: After successfully launching this CloudFormation stack, you'll have two Private Subnet in two different AZ, with Overlap NAT box in each Private Subnet. You'll also have Public Subnet for NAT-Gateway. The Overlap NAT will instances will automatically monitor each other and update the rules by checking TGW route tables priodically.  ",
+
+  "Parameters" : {
+
+    "KeyName": {
+      "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription" : "must be the name of an existing EC2 KeyPair.",
+      "Default":"premkey"
+    },
+
+    "VpcCidr1" : {
+      "Description" : "CIDR address for the VPC to be created.",
+      "Type" : "String",
+      "Default" : "101.0.0.0/16",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+
+    "VpcCidr2" : {
+      "Description" : "CIDR address for the Second VPC to be created.",
+      "Type" : "String",
+      "Default" : "102.0.0.0/16",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+
+    "PublicSubnet1" : {
+      "Description" : "Address range for a public subnet to be created in AZ1.",
+      "Type" : "String",
+      "Default" : "101.0.0.0/24",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "PrivateSubnet1" : {
+      "Description" : "Address range for a private subnet to be created in AZ1.",
+      "Type" : "String",
+      "Default" : "101.0.1.0/24",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "PrivateSubnet2" : {
+      "Description" : "Address range for a private subnet to be created in AZ2.",
+      "Type" : "String",
+      "Default" : "101.0.2.0/24",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+
+    "VPC2PublicSubnet1" : {
+      "Description" : "Address range for a public subnet to be created in AZ1.",
+      "Type" : "String",
+      "Default" : "102.0.0.0/24",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "VPC2PrivateSubnet1" : {
+      "Description" : "Address range for a private subnet to be created in AZ1.",
+      "Type" : "String",
+      "Default" : "102.0.1.0/24",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+    "VPC2PrivateSubnet2" : {
+      "Description" : "Address range for a private subnet to be created in AZ2.",
+      "Type" : "String",
+      "Default" : "102.0.2.0/24",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+
+    "IP2NAT" : {
+      "Description" : "CIDR of the VPC/Attachment to NAT",
+      "Type" : "String",
+      "Default" : "11.0.0.0/16",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+
+    "NATIP" : {
+      "Description" : "NAT CIDR to NAT VPC/Attachment",
+      "Type" : "String",
+      "Default" : "12.0.0.0/16",
+      "AllowedPattern": "(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})/(\\d{1,2})",
+      "ConstraintDescription": "must be a valid IP CIDR range of the form x.x.x.x/x."
+    },
+
+    "OverlapNATNodeInstanceType" : {
+      "Description" : "Instance type for NAT nodes.",
+      "Type" : "String",
+      "Default" : "m4.large",
+      "AllowedValues" : [ "t2.micro","t2.large","m5.large","m5.12xlarge","m5.24xlarge","m4.large","m4.xlarge","m4.10xlarge","c5.large","c5.2xlarge","c5.18xlarge","c4.large","c4.2xlarge","c4.8xlarge"],
+      "ConstraintDescription" : "must be a valid EC2 instance type."
+    },
+    
+    "TransitGatewayId" : {
+      "Description" : "Transit Gateway for VPC Attachment",
+      "Type" : "String"
+    },
+
+    "LatestAMI" : {
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+      "Default": "/aws/service/ami-amazon-linux-latest/amzn-ami-hvm-x86_64-gp2" 
+    }
+  },
+
+  "Metadata" : {
+    "AWS::CloudFormation::Interface" : {
+      "ParameterGroups" : [
+        {
+          "Label" : { "default" : "Network Configuration for VPC 1" },
+          "Parameters" : [ "VpcCidr1", "PublicSubnet1","PrivateSubnet1","PrivateSubnet2" ]
+        },
+
+        {
+          "Label" : { "default" : "Network Configuration for VPC 2" },
+          "Parameters" : [ "VpcCidr2", "VPC2PublicSubnet1","VPC2PrivateSubnet1","VPC2PrivateSubnet2" ]
+        },
+        
+        {
+          "Label" : { "default":"Amazon EC2 Configuration" },
+          "Parameters" : [ "OverlapNATNodeInstanceType", "KeyName", "LatestAMI" ]
+        },
+        {
+          "Label" : { "default":"TGW Configuration" },
+          "Parameters" : [ "TransitGatewayId" ]
+        },
+        {
+          "Label" : { "default":"Overlapping CIDR Configuration" },
+          "Parameters" : [ "IP2NAT", "NATIP" ]
+        }
+      ]
+    }
+  },
+
+
+  "Resources" : {
+
+    "OverlapNATRole": {
+       "Type": "AWS::IAM::Role",
+       "Properties": {
+          "AssumeRolePolicyDocument": {
+             "Statement": [ {
+                "Effect": "Allow",
+                "Principal": {
+                   "Service": [ "ec2.amazonaws.com" ]
+                },
+                "Action": [ "sts:AssumeRole" ]
+             } ]
+          },
+          "Path": "/",
+          "Policies": [ {
+             "PolicyName": "NAT_Takeover",
+             "PolicyDocument": {
+                "Statement": [ {
+                   "Effect": "Allow",
+                   "Action": [
+                        "ec2:DescribeInstances",
+                        "ec2:DescribeRouteTables",
+                        "ec2:CreateTags",
+                        "ec2:DeleteTags",
+                        "ec2:CreateRoute",
+                        "ec2:ReplaceRoute",
+                        "ec2:DeleteRoute",
+                        "ec2:StartInstances",
+                        "ec2:StopInstances",
+                        "ec2:DescribeTransitGatewayAttachments",
+                        "ec2:DescribeTransitGatewayRouteTables",
+                        "logs:Create*",
+                        "logs:PutLogEvents"
+                   ],
+                   "Resource": "*"
+                } ]
+             }
+             } ]
+          }
+    },
+
+    "OverlapNATRoleProfile": {
+       "Type": "AWS::IAM::InstanceProfile",
+       "Properties": {
+          "Path": "/",
+          "Roles": [ {
+             "Ref": "OverlapNATRole"
+          } ]
+       }
+    },
+
+    "VPC1" : {
+      "Type" : "AWS::EC2::VPC",
+      "Properties" : {
+        "CidrBlock" : { "Ref" : "VpcCidr1" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } }
+        ]
+      }
+    },
+
+    "VPC2" : {
+      "Type" : "AWS::EC2::VPC",
+      "Properties" : {
+        "CidrBlock" : { "Ref" : "VpcCidr2" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } }
+        ]
+      }
+    },
+
+    "PubSubnet1" : {
+      "Type" : "AWS::EC2::Subnet",
+      "DependsOn": "VPC1",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC1" },
+       "AvailabilityZone" : { "Fn::Select" : [ "0", { "Fn::GetAZs" : "" } ] },
+        "CidrBlock" : { "Ref" : "PublicSubnet1" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } },
+          { "Key" : "Network", "Value" : "Public" }
+        ]
+      }
+    },
+
+    "PriSubnet1" : {
+      "Type" : "AWS::EC2::Subnet",
+      "DependsOn": "VPC1",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC1" },
+        "AvailabilityZone" : { "Fn::Select" : [ "0", { "Fn::GetAZs" : "" } ] },
+        "CidrBlock" : { "Ref" : "PrivateSubnet1" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } },
+          { "Key" : "Network", "Value" : "Private" }
+        ]
+      }
+    },
+
+    "PriSubnet2" : {
+      "Type" : "AWS::EC2::Subnet",
+      "DependsOn": "VPC1",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC1" },
+        "AvailabilityZone" : { "Fn::Select" : [ "1", { "Fn::GetAZs" : "" } ] },
+        "CidrBlock" : { "Ref" : "PrivateSubnet2" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } },
+          { "Key" : "Network", "Value" : "Private" }
+        ]
+      }
+    },
+
+    "VPC2PubSubnet1" : {
+      "Type" : "AWS::EC2::Subnet",
+      "DependsOn": "VPC2",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC2" },
+       "AvailabilityZone" : { "Fn::Select" : [ "0", { "Fn::GetAZs" : "" } ] },
+        "CidrBlock" : { "Ref" : "VPC2PublicSubnet1" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } },
+          { "Key" : "Network", "Value" : "Public" }
+        ]
+      }
+    },
+
+    "VPC2PriSubnet1" : {
+      "Type" : "AWS::EC2::Subnet",
+      "DependsOn": "VPC2",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC2" },
+        "AvailabilityZone" : { "Fn::Select" : [ "0", { "Fn::GetAZs" : "" } ] },
+        "CidrBlock" : { "Ref" : "VPC2PrivateSubnet1" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } },
+          { "Key" : "Network", "Value" : "Private" }
+        ]
+      }
+    },
+
+    "VPC2PriSubnet2" : {
+      "Type" : "AWS::EC2::Subnet",
+      "DependsOn": "VPC2",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC2" },
+        "AvailabilityZone" : { "Fn::Select" : [ "1", { "Fn::GetAZs" : "" } ] },
+        "CidrBlock" : { "Ref" : "VPC2PrivateSubnet2" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } },
+          { "Key" : "Network", "Value" : "Private" }
+        ]
+      }
+    },
+
+    "InternetGateway" : {
+      "Type" : "AWS::EC2::InternetGateway",
+      "Properties" : {
+        "Tags" : [
+          { "Key" : "Application", "Value" : { "Ref" : "AWS::StackName" } },
+          { "Key" : "Network", "Value" : "Public" }
+        ]
+      }
+    },
+
+    "GatewayToInternet" : {
+       "Type" : "AWS::EC2::VPCGatewayAttachment",
+       "Properties" : {
+         "VpcId" : { "Ref" : "VPC1" },
+         "InternetGatewayId" : { "Ref" : "InternetGateway" }
+       }
+    },
+
+    "InternetGateway2" : {
+      "Type" : "AWS::EC2::InternetGateway",
+      "Properties" : {
+        "Tags" : [
+          { "Key" : "Name", "Value" : { "Ref" : "AWS::StackName" } },
+          { "Key" : "Network", "Value" : "Public" }
+        ]
+      }
+    },
+
+    "GatewayToInternet2" : {
+       "Type" : "AWS::EC2::VPCGatewayAttachment",
+       "Properties" : {
+         "VpcId" : { "Ref" : "VPC2" },
+         "InternetGatewayId" : { "Ref" : "InternetGateway2" }
+       }
+    },
+    
+    "PublicRouteTable" : {
+      "Type" : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC1" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : "Public" }
+        ]
+      }
+    },
+
+    "PrivateRouteTable" : {
+      "Type" : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC1" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : "Private" }
+        ]
+      }
+    },
+
+    "PublicRoute" : {
+      "Type" : "AWS::EC2::Route",
+      "DependsOn": "GatewayToInternet",
+      "Properties" : {
+        "RouteTableId" : { "Ref" : "PublicRouteTable" },
+        "DestinationCidrBlock" : "0.0.0.0/0",
+        "GatewayId" : { "Ref" : "InternetGateway" }
+      }
+    },
+
+    "VPC2PublicRouteTable" : {
+      "Type" : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC2" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : "Public" }
+        ]
+      }
+    },
+
+    "VPC2PrivateRouteTable" : {
+      "Type" : "AWS::EC2::RouteTable",
+      "Properties" : {
+        "VpcId" : { "Ref" : "VPC2" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : "Private" }
+        ]
+      }
+    },
+
+    "VPC2PublicRoute" : {
+      "Type" : "AWS::EC2::Route",
+      "DependsOn": "GatewayToInternet2",
+      "Properties" : {
+        "RouteTableId" : { "Ref" : "VPC2PublicRouteTable" },
+        "DestinationCidrBlock" : "0.0.0.0/0",
+        "GatewayId" : { "Ref" : "InternetGateway2" }
+      }
+    },
+
+    "EIP" : {
+      "Type" : "AWS::EC2::EIP",
+      "Properties" : {
+        "Domain" : "vpc"
+      }
+    },
+    "NATGateway": {
+      "DependsOn": "GatewayToInternet",
+      "Type": "AWS::EC2::NatGateway",
+      "Properties": {
+        "AllocationId": {
+          "Fn::GetAtt": [
+            "EIP",
+            "AllocationId"
+          ]
+        },
+        "SubnetId": {
+          "Ref": "PubSubnet1"
+        }
+      }
+    },
+
+    "EIP2" : {
+      "Type" : "AWS::EC2::EIP",
+      "Properties" : {
+        "Domain" : "vpc"
+      }
+    },
+
+    "NATGateway2": {
+      "DependsOn": "GatewayToInternet2",
+      "Type": "AWS::EC2::NatGateway",
+      "Properties": {
+        "AllocationId": {
+          "Fn::GetAtt": [
+            "EIP2",
+            "AllocationId"
+          ]
+        },
+        "SubnetId": {
+          "Ref": "VPC2PubSubnet1"
+        }
+      }
+    },
+
+    "PrivateRoute1" : {
+      "Type" : "AWS::EC2::Route",
+      "DependsOn": "NATGateway",
+      "Properties" : {
+        "RouteTableId" : { "Ref" : "PrivateRouteTable" },
+        "DestinationCidrBlock" : "0.0.0.0/0",
+        "NatGatewayId" : { "Ref" : "NATGateway" }
+      }
+    },
+
+    "VPC2PrivateRoute1" : {
+      "Type" : "AWS::EC2::Route",
+      "DependsOn": "NATGateway2",
+      "Properties" : {
+        "RouteTableId" : { "Ref" : "VPC2PrivateRouteTable" },
+        "DestinationCidrBlock" : "0.0.0.0/0",
+        "NatGatewayId" : { "Ref" : "NATGateway2" }
+      }
+    },
+
+    "PubSubnet1RTAssoc" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "PubSubnet1" },
+        "RouteTableId" : { "Ref" : "PublicRouteTable" }
+      }
+    },
+
+    "PriSubnet1RTAssoc" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "PriSubnet1" },
+        "RouteTableId" : { "Ref" : "PrivateRouteTable" }
+      }
+    },
+
+    "PriSubnet2RTAssoc" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "PriSubnet2" },
+        "RouteTableId" : { "Ref" : "PrivateRouteTable" }
+      }
+    },
+
+
+    "VPC2PubSubnet1RTAssoc" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "VPC2PubSubnet1" },
+        "RouteTableId" : { "Ref" : "VPC2PublicRouteTable" }
+      }
+    },
+
+    "VPC2PriSubnet1RTAssoc" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "VPC2PriSubnet1" },
+        "RouteTableId" : { "Ref" : "VPC2PrivateRouteTable" }
+      }
+    },
+
+    "VPC2PriSubnet2RTAssoc" : {
+      "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties" : {
+        "SubnetId" : { "Ref" : "VPC2PriSubnet2" },
+        "RouteTableId" : { "Ref" : "VPC2PrivateRouteTable" }
+      }
+    },
+    
+    "OverlapNAT1Instance" : {
+      "Type" : "AWS::EC2::Instance",
+      "Metadata" : {
+        "Comment1" : "Create Overlap NAT #1",
+        "AWS::CloudFormation::Init": {
+          "config": {
+              "files": {
+                  "/tmp/cwlogs/tgw_nat.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[general]\n",
+                                  "state_file= /var/awslogs/agent-state\n",
+                                  "[/tmp/tgw_monitor.log]\n",
+                                  "file = /tmp/tgw_monitor.log\n",
+                                  "log_group_name = ", {"Ref": "TGWMonitorLogGroup"}, "\n",
+                                  "log_stream_name = {instance_id}/tgw_monitor.log\n",
+                                  "datetime_format = %d/%b/%Y:%H:%M:%S\n",
+                                  "[/tmp/health_monitor.log]\n",
+                                  "file = /tmp/health_monitor.log\n",
+                                  "log_group_name = ", {"Ref": "TGWMonitorLogGroup"}, "\n",
+                                  "log_stream_name = {instance_id}/health_monitor.log\n",
+                                  "datetime_format = %d/%b/%Y:%H:%M:%S"
+                              ]
+                          ]
+                      },
+                      "mode": "000400",
+                      "owner": "root",
+                      "group": "root"
+                  },
+
+                  "/etc/cfn/cfn-hup.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[main]\n",
+                                  "stack=",
+                                  {
+                                      "Ref": "AWS::StackId"
+                                  },
+                                  "\n",
+                                  "region=",
+                                  {
+                                      "Ref": "AWS::Region"
+                                  },
+                                  "\n"
+                              ]
+                          ]
+                      },
+                      "mode": "000400",
+                      "owner": "root",
+                      "group": "root"
+                  },
+                  "/etc/cfn/hooks.d/cfn-auto-reloader.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[cfn-auto-reloader-hook]\n",
+                                  "triggers=post.update\n",
+                                  "path=Resources.OverlapNAT1Instance.Metadata.AWS::CloudFormation::Init\n",
+                                  "action=/opt/aws/bin/cfn-init -s ",
+                                  {
+                                      "Ref": "AWS::StackId"
+                                  },
+                                  " -r OverlapNAT1Instance ",
+                                  " --region     ",
+                                  {
+                                      "Ref": "AWS::Region"
+                                  },
+                                  "\n",
+                                  "runas=root\n"
+                              ]
+                          ]
+                      }
+                  }
+              }
+          }
+      }
+      },
+      
+      "Properties" : {
+        "InstanceType" : { "Ref" : "OverlapNATNodeInstanceType" } ,
+        "KeyName" : { "Ref" : "KeyName" },
+	      "IamInstanceProfile" : { "Ref" : "OverlapNATRoleProfile" },
+        "SubnetId" : { "Ref" : "PriSubnet1" },
+        "SourceDestCheck" : "false",
+        "ImageId" : {"Ref" : "LatestAMI"},
+        "SecurityGroupIds" : [{ "Ref" : "OverlapNATSecurityGroup" }],
+        "Tags" : [
+          { "Key" : "Name", "Value" : "NATPrimary" }
+        ],
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash -v\n",
+    "yum update -y aws*\n",
+    "yum -y install aws-cli\n",
+    "yum -y install sipcalc --enablerepo=epel\n",
+    "yum install -y aws-cfn-bootstrap\n",
+	  ". /etc/profile.d/aws-apitools-common.sh\n",
+          "# Configure iptables\n",
+	  "/sbin/iptables-save > /etc/sysconfig/iptables\n",
+          "# Configure ip forwarding and redirects\n",
+          "echo 1 >  /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects\n",
+	  "mkdir -p /etc/sysctl.d/\n",
+	  "cat <<EOF > /etc/sysctl.d/nat.conf\n",
+	  "net.ipv4.ip_forward = 1\n",
+	  "net.ipv4.conf.eth0.send_redirects = 0\n",
+	  "EOF\n",
+          "# Download health_monitor.sh and tgw_monitor.sh\n",
+          "cd /root\n",
+	  "wget https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/health_monitor.sh\n",
+          "chmod a+x /root/health_monitor.sh\n",
+    "wget https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/tgw_monitor.sh\n",
+          "chmod a+x /root/tgw_monitor.sh\n",
+    "sed -i '$ a /root/health_monitor.sh > /tmp/health_monitor.log &' /etc/rc.d/rc.local\n",
+    "sed -i '$ a /root/tgw_monitor.sh > /tmp/tgw_monitor.log &' /etc/rc.d/rc.local\n",
+
+    "# Start cfn-init\n",
+    "/opt/aws/bin/cfn-init -s ", { "Ref": "AWS::StackId" }, " -r OverlapNAT1Instance ", " --region ", { "Ref": "AWS::Region" },
+    " || error_exit 'Failed to run cfn-init'\n",
+    
+    "# Start up the cfn-hup daemon to listen for changes to the EC2 instance metadata\n",
+    "/opt/aws/bin/cfn-hup || error_exit 'Failed to start cfn-hup'\n",
+    
+    "# Get the CloudWatch Logs agent\n",
+    "wget https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py\n",
+    
+    "# Install the CloudWatch Logs agent\n",
+    "python awslogs-agent-setup.py -n -r ", { "Ref" : "AWS::Region" }, " -c /tmp/cwlogs/tgw_nat.conf || error_exit 'Failed to run CloudWatch Logs agent setup'\n",
+    
+    "# All done so signal success\n",
+    "/opt/aws/bin/cfn-signal -e $? ",
+    "         --stack ", { "Ref" : "AWS::StackName" },
+    "         --resource OverlapNAT1Instance ",
+    "         --region ", { "Ref" : "AWS::Region" }, "\n"
+    
+        ]]}}
+      }
+    },
+
+    "OverlapNAT2Instance" : {
+      "Type" : "AWS::EC2::Instance",
+      "Metadata" : {
+        "Comment1" : "Create Overlap NAT #2",
+        "AWS::CloudFormation::Init": {
+          "config": {
+              "files": {
+                  "/tmp/cwlogs/tgw_nat.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[general]\n",
+                                  "state_file= /var/awslogs/agent-state\n",
+                                  "[/tmp/tgw_monitor.log]\n",
+                                  "file = /tmp/tgw_monitor.log\n",
+                                  "log_group_name = ", {"Ref": "TGWMonitorLogGroup"}, "\n",
+                                  "log_stream_name = {instance_id}/tgw_monitor.log\n",
+                                  "datetime_format = %d/%b/%Y:%H:%M:%S\n",
+                                  "[/tmp/health_monitor.log]\n",
+                                  "file = /tmp/health_monitor.log\n",
+                                  "log_group_name = ", {"Ref": "TGWMonitorLogGroup"}, "\n",
+                                  "log_stream_name = {instance_id}/health_monitor.log\n",
+                                  "datetime_format = %d/%b/%Y:%H:%M:%S"
+                              ]
+                          ]
+                      },
+                      "mode": "000400",
+                      "owner": "root",
+                      "group": "root"
+                  },
+
+                  "/etc/cfn/cfn-hup.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[main]\n",
+                                  "stack=",
+                                  {
+                                      "Ref": "AWS::StackId"
+                                  },
+                                  "\n",
+                                  "region=",
+                                  {
+                                      "Ref": "AWS::Region"
+                                  },
+                                  "\n"
+                              ]
+                          ]
+                      },
+                      "mode": "000400",
+                      "owner": "root",
+                      "group": "root"
+                  },
+                  "/etc/cfn/hooks.d/cfn-auto-reloader.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[cfn-auto-reloader-hook]\n",
+                                  "triggers=post.update\n",
+                                  "path=Resources.OverlapNAT2Instance.Metadata.AWS::CloudFormation::Init\n",
+                                  "action=/opt/aws/bin/cfn-init -s ",
+                                  {
+                                      "Ref": "AWS::StackId"
+                                  },
+                                  " -r OverlapNAT2Instance ",
+                                  " --region     ",
+                                  {
+                                      "Ref": "AWS::Region"
+                                  },
+                                  "\n",
+                                  "runas=root\n"
+                              ]
+                          ]
+                      }
+                  }
+              }
+          }
+      }
+      },
+      "Properties" : {
+        "InstanceType" : { "Ref" : "OverlapNATNodeInstanceType" } ,
+        "KeyName" : { "Ref" : "KeyName" },
+	      "IamInstanceProfile" : { "Ref" : "OverlapNATRoleProfile" },
+        "SubnetId" : { "Ref" : "PriSubnet2" },
+        "SourceDestCheck" : "false",
+        "ImageId" : {"Ref" : "LatestAMI"},
+        "SecurityGroupIds" : [{ "Ref" : "OverlapNATSecurityGroup" }],
+        "Tags" : [
+          { "Key" : "Name", "Value" : "NATSecondary" }
+        ],
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash -v\n",
+    "yum update -y aws*\n",
+    "yum -y install aws-cli\n",
+    "yum -y install sipcalc --enablerepo=epel\n",
+    "yum install -y aws-cfn-bootstrap\n",
+	  ". /etc/profile.d/aws-apitools-common.sh\n",
+          "# Configure iptables\n",
+	  "/sbin/iptables-save > /etc/sysconfig/iptables\n",
+          "# Configure ip forwarding and redirects\n",
+          "echo 1 >  /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects\n",
+	  "mkdir -p /etc/sysctl.d/\n",
+	  "cat <<EOF > /etc/sysctl.d/nat.conf\n",
+	  "net.ipv4.ip_forward = 1\n",
+	  "net.ipv4.conf.eth0.send_redirects = 0\n",
+	  "EOF\n",
+    "# Download health_monitor.sh and tgw_monitor.sh\n",
+    "cd /root\n",
+"wget https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/health_monitor.sh\n",
+    "chmod a+x /root/health_monitor.sh\n",
+"wget https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/tgw_monitor.sh\n",
+    "chmod a+x /root/tgw_monitor.sh\n",
+    "sed -i '$ a /root/health_monitor.sh > /tmp/health_monitor.log &' /etc/rc.d/rc.local\n",
+    "sed -i '$ a /root/tgw_monitor.sh > /tmp/tgw_monitor.log &' /etc/rc.d/rc.local\n",
+
+    "# Start cfn-init\n",
+    "/opt/aws/bin/cfn-init -s ", { "Ref": "AWS::StackId" }, " -r OverlapNAT2Instance ", " --region ", { "Ref": "AWS::Region" },
+    " || error_exit 'Failed to run cfn-init'\n",
+    
+    "# Start up the cfn-hup daemon to listen for changes to the EC2 instance metadata\n",
+    "/opt/aws/bin/cfn-hup || error_exit 'Failed to start cfn-hup'\n",
+    
+    "# Get the CloudWatch Logs agent\n",
+    "wget https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py\n",
+    
+    "# Install the CloudWatch Logs agent\n",
+    "python awslogs-agent-setup.py -n -r ", { "Ref" : "AWS::Region" }, " -c /tmp/cwlogs/tgw_nat.conf || error_exit 'Failed to run CloudWatch Logs agent setup'\n",
+    
+    "# All done so signal success\n",
+    "/opt/aws/bin/cfn-signal -e $? ",
+    "         --stack ", { "Ref" : "AWS::StackName" },
+    "         --resource OverlapNAT2Instance ",
+    "         --region ", { "Ref" : "AWS::Region" }, "\n"
+    
+    
+        ]]}}
+      }
+    },
+
+    "VPC2OverlapNAT1Instance" : {
+      "Type" : "AWS::EC2::Instance",
+      "Metadata" : {
+        "Comment1" : "Create Overlap NAT #1",
+        "AWS::CloudFormation::Init": {
+          "config": {
+              "files": {
+                  "/tmp/cwlogs/tgw_nat.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[general]\n",
+                                  "state_file= /var/awslogs/agent-state\n",
+                                  "[/tmp/tgw_monitor.log]\n",
+                                  "file = /tmp/tgw_monitor.log\n",
+                                  "log_group_name = ", {"Ref": "TGWMonitorLogGroup"}, "\n",
+                                  "log_stream_name = {instance_id}/tgw_monitor.log\n",
+                                  "datetime_format = %d/%b/%Y:%H:%M:%S\n",
+                                  "[/tmp/health_monitor.log]\n",
+                                  "file = /tmp/health_monitor.log\n",
+                                  "log_group_name = ", {"Ref": "TGWMonitorLogGroup"}, "\n",
+                                  "log_stream_name = {instance_id}/health_monitor.log\n",
+                                  "datetime_format = %d/%b/%Y:%H:%M:%S"
+                              ]
+                          ]
+                      },
+                      "mode": "000400",
+                      "owner": "root",
+                      "group": "root"
+                  },
+
+                  "/etc/cfn/cfn-hup.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[main]\n",
+                                  "stack=",
+                                  {
+                                      "Ref": "AWS::StackId"
+                                  },
+                                  "\n",
+                                  "region=",
+                                  {
+                                      "Ref": "AWS::Region"
+                                  },
+                                  "\n"
+                              ]
+                          ]
+                      },
+                      "mode": "000400",
+                      "owner": "root",
+                      "group": "root"
+                  },
+                  "/etc/cfn/hooks.d/cfn-auto-reloader.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[cfn-auto-reloader-hook]\n",
+                                  "triggers=post.update\n",
+                                  "path=Resources.VPC2OverlapNAT1Instance.Metadata.AWS::CloudFormation::Init\n",
+                                  "action=/opt/aws/bin/cfn-init -s ",
+                                  {
+                                      "Ref": "AWS::StackId"
+                                  },
+                                  " -r VPC2OverlapNAT1Instance ",
+                                  " --region     ",
+                                  {
+                                      "Ref": "AWS::Region"
+                                  },
+                                  "\n",
+                                  "runas=root\n"
+                              ]
+                          ]
+                      }
+                  }
+              }
+          }
+      }
+      },
+      "Properties" : {
+        "InstanceType" : { "Ref" : "OverlapNATNodeInstanceType" } ,
+        "KeyName" : { "Ref" : "KeyName" },
+	      "IamInstanceProfile" : { "Ref" : "OverlapNATRoleProfile" },
+        "SubnetId" : { "Ref" : "VPC2PriSubnet1" },
+        "SourceDestCheck" : "false",
+        "ImageId" : {"Ref" : "LatestAMI"},
+        "SecurityGroupIds" : [{ "Ref" : "VPC2OverlapNATSecurityGroup" }],
+        "Tags" : [
+          { "Key" : "Name", "Value" : "NATPrimary" }
+        ],
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash -v\n",
+    "yum update -y aws*\n",
+    "yum -y install aws-cli\n",
+    "yum -y install sipcalc --enablerepo=epel\n",
+    "yum install -y aws-cfn-bootstrap\n",
+	  ". /etc/profile.d/aws-apitools-common.sh\n",
+          "# Configure iptables\n",
+	  "/sbin/iptables-save > /etc/sysconfig/iptables\n",
+          "# Configure ip forwarding and redirects\n",
+          "echo 1 >  /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects\n",
+	  "mkdir -p /etc/sysctl.d/\n",
+	  "cat <<EOF > /etc/sysctl.d/nat.conf\n",
+	  "net.ipv4.ip_forward = 1\n",
+	  "net.ipv4.conf.eth0.send_redirects = 0\n",
+	  "EOF\n",
+    "# Download health_monitor.sh and tgw_monitor.sh\n",
+    "cd /root\n",
+"wget https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/health_monitor.sh\n",
+    "chmod a+x /root/health_monitor.sh\n",
+"wget https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/tgw_monitor.sh\n",
+    "chmod a+x /root/tgw_monitor.sh\n",
+    "sed -i '$ a /root/health_monitor.sh > /tmp/health_monitor.log &' /etc/rc.d/rc.local\n",
+    "sed -i '$ a /root/tgw_monitor.sh > /tmp/tgw_monitor.log &' /etc/rc.d/rc.local\n",
+
+    
+    "# Start cfn-init\n",
+    "/opt/aws/bin/cfn-init -s ", { "Ref": "AWS::StackId" }, " -r VPC2OverlapNAT1Instance ", " --region ", { "Ref": "AWS::Region" },
+    " || error_exit 'Failed to run cfn-init'\n",
+    
+    "# Start up the cfn-hup daemon to listen for changes to the EC2 instance metadata\n",
+    "/opt/aws/bin/cfn-hup || error_exit 'Failed to start cfn-hup'\n",
+    
+    "# Get the CloudWatch Logs agent\n",
+    "wget https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py\n",
+    
+    "# Install the CloudWatch Logs agent\n",
+    "python awslogs-agent-setup.py -n -r ", { "Ref" : "AWS::Region" }, " -c /tmp/cwlogs/tgw_nat.conf || error_exit 'Failed to run CloudWatch Logs agent setup'\n",
+    
+    "# All done so signal success\n",
+    "/opt/aws/bin/cfn-signal -e $? ",
+    "         --stack ", { "Ref" : "AWS::StackName" },
+    "         --resource VPC2OverlapNAT1Instance ",
+    "         --region ", { "Ref" : "AWS::Region" }, "\n"
+        ]]}}
+      }
+    },
+
+    "VPC2OverlapNAT2Instance" : {
+      "Type" : "AWS::EC2::Instance",
+      "Metadata" : {
+        "Comment1" : "Create Overlap NAT #2",
+        "AWS::CloudFormation::Init": {
+          "config": {
+              "files": {
+                  "/tmp/cwlogs/tgw_nat.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[general]\n",
+                                  "state_file= /var/awslogs/agent-state\n",
+                                  "[/tmp/tgw_monitor.log]\n",
+                                  "file = /tmp/tgw_monitor.log\n",
+                                  "log_group_name = ", {"Ref": "TGWMonitorLogGroup"}, "\n",
+                                  "log_stream_name = {instance_id}/tgw_monitor.log\n",
+                                  "datetime_format = %d/%b/%Y:%H:%M:%S\n",
+                                  "[/tmp/health_monitor.log]\n",
+                                  "file = /tmp/health_monitor.log\n",
+                                  "log_group_name = ", {"Ref": "TGWMonitorLogGroup"}, "\n",
+                                  "log_stream_name = {instance_id}/health_monitor.log\n",
+                                  "datetime_format = %d/%b/%Y:%H:%M:%S"
+                              ]
+                          ]
+                      },
+                      "mode": "000400",
+                      "owner": "root",
+                      "group": "root"
+                  },
+
+                  "/etc/cfn/cfn-hup.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[main]\n",
+                                  "stack=",
+                                  {
+                                      "Ref": "AWS::StackId"
+                                  },
+                                  "\n",
+                                  "region=",
+                                  {
+                                      "Ref": "AWS::Region"
+                                  },
+                                  "\n"
+                              ]
+                          ]
+                      },
+                      "mode": "000400",
+                      "owner": "root",
+                      "group": "root"
+                  },
+                  "/etc/cfn/hooks.d/cfn-auto-reloader.conf": {
+                      "content": {
+                          "Fn::Join": [
+                              "",
+                              [
+                                  "[cfn-auto-reloader-hook]\n",
+                                  "triggers=post.update\n",
+                                  "path=Resources.VPC2OverlapNAT2Instance.Metadata.AWS::CloudFormation::Init\n",
+                                  "action=/opt/aws/bin/cfn-init -s ",
+                                  {
+                                      "Ref": "AWS::StackId"
+                                  },
+                                  " -r VPC2OverlapNAT2Instance ",
+                                  " --region     ",
+                                  {
+                                      "Ref": "AWS::Region"
+                                  },
+                                  "\n",
+                                  "runas=root\n"
+                              ]
+                          ]
+                      }
+                  }
+              }
+          }
+      }
+      },
+      "Properties" : {
+        "InstanceType" : { "Ref" : "OverlapNATNodeInstanceType" } ,
+        "KeyName" : { "Ref" : "KeyName" },
+	      "IamInstanceProfile" : { "Ref" : "OverlapNATRoleProfile" },
+        "SubnetId" : { "Ref" : "VPC2PriSubnet2" },
+        "SourceDestCheck" : "false",
+        "ImageId" : {"Ref" : "LatestAMI"},
+        "SecurityGroupIds" : [{ "Ref" : "VPC2OverlapNATSecurityGroup" }],
+        "Tags" : [
+          { "Key" : "Name", "Value" : "NATSecondary" }
+        ],
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash -v\n",
+    "yum update -y aws*\n",
+    "yum -y install aws-cli\n",
+    "yum -y install sipcalc --enablerepo=epel\n",
+	  ". /etc/profile.d/aws-apitools-common.sh\n",
+          "# Configure iptables\n",
+	  "/sbin/iptables-save > /etc/sysconfig/iptables\n",
+          "# Configure ip forwarding and redirects\n",
+          "echo 1 >  /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects\n",
+	  "mkdir -p /etc/sysctl.d/\n",
+	  "cat <<EOF > /etc/sysctl.d/nat.conf\n",
+	  "net.ipv4.ip_forward = 1\n",
+	  "net.ipv4.conf.eth0.send_redirects = 0\n",
+	  "EOF\n",
+    "# Download health_monitor.sh and tgw_monitor.sh\n",
+    "cd /root\n",
+"wget https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/health_monitor.sh\n",
+    "chmod a+x /root/health_monitor.sh\n",
+"wget https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/tgw_monitor.sh\n",
+    "chmod a+x /root/tgw_monitor.sh\n",
+    "sed -i '$ a /root/health_monitor.sh > /tmp/health_monitor.log &' /etc/rc.d/rc.local\n",
+    "sed -i '$ a /root/tgw_monitor.sh > /tmp/tgw_monitor.log &' /etc/rc.d/rc.local\n",
+    
+    "# Start cfn-init\n",
+    "/opt/aws/bin/cfn-init -s ", { "Ref": "AWS::StackId" }, " -r VPC2OverlapNAT2Instance ", " --region ", { "Ref": "AWS::Region" },
+    " || error_exit 'Failed to run cfn-init'\n",
+    
+    "# Start up the cfn-hup daemon to listen for changes to the EC2 instance metadata\n",
+    "/opt/aws/bin/cfn-hup || error_exit 'Failed to start cfn-hup'\n",
+    
+    "# Get the CloudWatch Logs agent\n",
+    "wget https://s3.amazonaws.com/aws-cloudwatch/downloads/latest/awslogs-agent-setup.py\n",
+    
+    "# Install the CloudWatch Logs agent\n",
+    "python awslogs-agent-setup.py -n -r ", { "Ref" : "AWS::Region" }, " -c /tmp/cwlogs/tgw_nat.conf || error_exit 'Failed to run CloudWatch Logs agent setup'\n",
+    
+    "# All done so signal success\n",
+    "/opt/aws/bin/cfn-signal -e $? ",
+    "         --stack ", { "Ref" : "AWS::StackName" },
+    "         --resource VPC2OverlapNAT2Instance ",
+    "         --region ", { "Ref" : "AWS::Region" }, "\n"
+        ]]}}
+      }
+    },
+    
+    "TGWMonitorLogGroup": {
+      "Type": "AWS::Logs::LogGroup"
+  },
+    "OverlapNATSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Rules for allowing access to Overlap HA Nodes",
+        "VpcId" : { "Ref" : "VPC1" },
+        "SecurityGroupIngress" : [
+           { "IpProtocol" : "-1", "FromPort" : "0",  "ToPort" : "65535",  "CidrIp" : "0.0.0.0/0" } ],
+        "SecurityGroupEgress" : [
+           { "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : "0.0.0.0/0" } ]
+      }
+    },
+
+    "VPC2OverlapNATSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Rules for allowing access to Overlap HA Nodes",
+        "VpcId" : { "Ref" : "VPC2" },
+        "SecurityGroupIngress" : [
+           { "IpProtocol" : "-1", "FromPort" : "0",  "ToPort" : "65535",  "CidrIp" : "0.0.0.0/0" }  ],
+        "SecurityGroupEgress" : [
+           { "IpProtocol" : "-1", "FromPort" : "0", "ToPort" : "65535", "CidrIp" : "0.0.0.0/0" } ]
+      }
+    },
+    "TgwAttachment": {
+      "Type" : "AWS::EC2::TransitGatewayAttachment",
+      "Properties" : {
+        "TransitGatewayId" : { "Ref":  "TransitGatewayId" },
+        "VpcId" : {"Ref":"VPC1" },
+        "SubnetIds" : [
+          { "Ref":  "PriSubnet1" },
+          { "Ref":  "PriSubnet2" }
+        ],
+        "Tags" : [
+          { "Key" : "Name", "Value" : "Red Attachment" }
+        ]
+      }
+    },
+  
+    "TgwRouteTable": {
+      "Type" : "AWS::EC2::TransitGatewayRouteTable",
+      "Properties" : {
+        "TransitGatewayId" : { "Ref":  "TransitGatewayId" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : "Red TGW RT" },
+          { "Key": { "Ref": "IP2NAT"}, "Value": { "Ref": "NATIP" } }
+        ]
+      }
+    },
+  
+    "TgwRouteTableAssociation": {
+      "Type" : "AWS::EC2::TransitGatewayRouteTableAssociation",
+      "DependsOn": "TgwAttachment",
+      "Properties" : {
+        "TransitGatewayRouteTableId" : { "Ref": "TgwRouteTable"},
+        "TransitGatewayAttachmentId" : { "Ref": "TgwAttachment" }
+      }
+    },
+    
+    "VPC2TgwAttachment": {
+      "Type" : "AWS::EC2::TransitGatewayAttachment",
+      "Properties" : {
+        "TransitGatewayId" : { "Ref":  "TransitGatewayId" },
+        "VpcId" : { "Ref": "VPC2" },
+        "SubnetIds" : [
+          { "Ref":  "VPC2PriSubnet1" },
+          { "Ref":  "VPC2PriSubnet2" }
+        ],
+        "Tags" : [
+          { "Key" : "Name", "Value" : "Green Attachment" }
+        ]
+      }
+    },
+    
+    "VPC2TgwRouteTable": {
+      "Type" : "AWS::EC2::TransitGatewayRouteTable",
+      "Properties" : {
+        "TransitGatewayId" : { "Ref":  "TransitGatewayId" },
+        "Tags" : [
+          { "Key" : "Name", "Value" : "Green TGW RT" },
+          { "Key": { "Ref": "IP2NAT"}, "Value": { "Ref": "NATIP" } }
+        ]
+      }
+    },
+  
+    "VPC2TgwRouteTableAssociation": {
+      "Type" : "AWS::EC2::TransitGatewayRouteTableAssociation",
+      "DependsOn": "VPC2TgwAttachment",
+      "Properties" : {
+        "TransitGatewayRouteTableId" : { "Ref": "VPC2TgwRouteTable"},
+        "TransitGatewayAttachmentId" : { "Ref": "VPC2TgwAttachment" }
+      }
+    }
+  
+  },  
+  "Outputs" : {
+    "OverlapNAT1Instance" : {
+      "Description" : "NAT Primary in VPC1",
+      "Value" :  { "Fn::Join" : [ "", [ { "Ref" : "OverlapNAT1Instance" } ]] }
+    },
+    "OverlapNAT2Instance" : {
+      "Description" : "NAT Secondary in VPC2",
+      "Value" :  { "Fn::Join" : [ "", [ { "Ref" : "OverlapNAT2Instance" } ]] }
+    },
+    "VPC2OverlapNATInstance" : {
+      "Description" : "NAT Primary in VPC2",
+      "Value" :  { "Fn::Join" : [ "", [ { "Ref" : "VPC2OverlapNAT1Instance" } ]] }
+    },
+
+    "VPC2OverlapNAT2Instance" : {
+      "Description" : "NAT Secondary in VPC2",
+      "Value" :  { "Fn::Join" : [ "", [ { "Ref" : "VPC2OverlapNAT2Instance" } ]] }
+    },
+
+    "VPCID" : {
+      "Description" : "VPC1 Info",
+      "Value" : { "Fn::Join" : [ "", [ { "Ref" : "VPC1" }, " (", { "Ref" : "VpcCidr1" }, ")" ]] }
+    },
+
+    "VPCID2" : {
+      "Description" : "VPC2 Info",
+      "Value" : { "Fn::Join" : [ "", [ { "Ref" : "VPC2" }, " (", { "Ref" : "VpcCidr2" }, ")" ]] }
+    },
+
+    "TransitGatewayId" : {
+      "Description" : "Transit Gateway Selected",
+      "Value" : { "Fn::Join" : [ "", [ { "Ref" : "TransitGatewayId" } ]] }
+    },
+
+    "TgwAttachment" : {
+      "Description" : "Transit Gateway Attachment ID for VPC1",
+      "Value" : { "Fn::Join" : [ "", [ { "Ref" : "TgwAttachment" }, " (", { "Ref" : "VPC1" }, ") ", { "Ref" : "VpcCidr1" } ]] }
+    },
+
+    "TgwRouteTable" : {
+      "Description" : "TgwRouteTable associated with Transit Gateway Attachment for VPC1",
+      "Value" : { "Fn::Join" : [ "", [ { "Ref" : "TgwRouteTable" }, " (", { "Ref" : "TgwAttachment" }, ") ", { "Ref" : "VPC1" } ]] }
+    },
+
+    "VPC2TgwAttachment" : {
+      "Description" : "Transit Gateway Attachment ID for VPC2",
+      "Value" : { "Fn::Join" : [ "", [ { "Ref" : "VPC2TgwAttachment" }, " (", { "Ref" : "VPC2" }, ") ", { "Ref" : "VpcCidr2" } ]] }
+    },
+
+    "VPC2TgwRouteTable" : {
+      "Description" : "TgwRouteTable associated with Transit Gateway Attachment for VPC2",
+      "Value" : { "Fn::Join" : [ "", [ { "Ref" : "VPC2TgwRouteTable" }, " (", { "Ref" : "VPC2TgwAttachment" }, ") ", { "Ref" : "VPC2" } ]] }
+    },
+    "CloudWatchLogGroupName": {
+      "Description": "The name of the CloudWatch log group",
+      "Value": {
+          "Ref": "TGWMonitorLogGroup"
+      }
+  }
+  }
+}
