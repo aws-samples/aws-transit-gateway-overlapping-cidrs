@@ -1,9 +1,9 @@
 # Solution for Overlapping CIDRs using AWS Transit Gateway in VPC
 
-Learn how you can leverage TGW to solve overlapping CIDRs problem by using Transit Gateway Routing Domains. 
+Author: Jaywant Kapadnis | AWS Cloud Support Engineer
 
+Learn how you can leverage TGW to solve overlapping CIDRs problem by using Transit Gateway Routing Domains. These sample scripts provides you with all the necessary tool to deploy this solution.
 
-Author: Jaywant Kapadnis | AWS Cloud Support Engineer 
 
 # License
 
@@ -17,11 +17,11 @@ The solution will launch two VPCs and place two EC2 instances in each VPCs. We h
 
 
 # Implementation Details
-EC2 instance will be running two scripts, health_monitor.sh and tgw_monitor.sh. 
+EC2 instance will be running two scripts, health_monitor.sh and tgw_monitor.sh
 
-health_monitor.sh - Two instances independently monitor each other and takeover in case of failure. Instance will send ICMP pings and if there's a failure for 3 consecutive times, it will take over and make the routing change. Once routing change is made, it will try to recover the failed instance by restarting it. There's no preempt here.
+`health_monitor.sh` - Two instances independently monitor each other and takeover in case of failure. Instance will send ICMP pings and if there's a failure for 3 consecutive times, it will take over and make the routing change. Once routing change is made, it will try to recover the failed instance by restarting it. There's no preempt here.
 
-tgw_monitor.sh - This script is monitoring tgw route table and looking for tags added to TGW route table. `Key` would be your attachment `VPC/VPN/DX` IP CIDR and Value would be the `NAT IP` you would like to NAT to. It will add configuration to do SNAT and DNAT automatically by picking up tags from the associated route table. It will also delete any configuration if tags are removed. The script runs every 60 seconds and checks for newly added tags. This script runs on all four instances, and at any given time, all the instances are in sync. 
+`tgw_monitor.sh` - This script is monitoring tgw route table and looking for tags added to TGW route table. `Key` would be your attachment `VPC/VPN/DX` IP CIDR and Value would be the `NAT IP` you would like to NAT to. It will add configuration to do SNAT and DNAT automatically by picking up tags from the associated route table. It will also delete any configuration if tags are removed. The script runs every 60 seconds and checks for newly added tags. This script runs on all four instances, and at any given time, all the instances are in sync. 
 
 We'll use Linux Traffic control to do SNAT and DNAT. This will be stateless NAT configuration on these boxes. Traffic Control nat action allows us to perform NAT without the overhead of conntrack, thus giving us option to NAT large numbers of flow and addresses.
 
@@ -77,7 +77,7 @@ VPC Blue 11.0.0.28 will see packet incoming from 12.0.0.85 and hence will reply 
 VPC Blue 11.0.0.2 → tgw-rtb-blue → tgw-attach-green → NAT instance in VPC Green [NAT translation SNAT and DNAT] src 12.0.0.85 dst 11.0.0.28 → tgw-rtb-green → tgw-att-orange → VPC Orange 11.0.0.28
 ```
 
-![](images/ping.png)
+![](images/pings.png)
 
 
 # What you need to do?
@@ -109,7 +109,7 @@ The above can be repeated for n number of VPC attachment. The configuration on V
 
 # Instructions on how to implement this solution
 ## Using CloudFormation Template
-You can deploy this solution by using CF template. [CF template](https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/cf.json)
+Download the latest template (or clone the repo): [CF template](https://github.com/aws-samples/aws-transit-gateway-overlapping-cidrs/raw/master/cf.json)
 
 
 ### CF stack will launch:
