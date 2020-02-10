@@ -1,8 +1,8 @@
-# Solution for Overlapping CIDRs using AWS Transit Gateway in VPC
+# Solution for Overlapping CIDRs using AWS Transit Gateway in VPC and NAT Instances
 
 Author: Jaywant Kapadnis | AWS Cloud Support Engineer
 
-Learn how you can leverage TGW to solve overlapping CIDRs problem by using Transit Gateway Routing Domains. These sample scripts provides you with all the necessary tool to deploy this solution.
+Learn how you can leverage TGW to solve overlapping CIDRs problem by using Transit Gateway Routing Domains and NAT Instances. These sample scripts provides you with all the necessary tool to deploy this solution.
 
 
 # License
